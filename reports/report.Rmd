@@ -1,0 +1,187 @@
+---
+title: "Air Pollution Patterns at RDU Airport, 2018–2020"
+author: "Mingyu.Shi"
+date: "2026-11-16"
+output:
+  word_document:
+    toc: false
+    fig_caption: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.width = 7.4, fig.height = 4.8, dpi = 220)
+
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+library(here)
+
+source(here::here("R", "process_air_quality.R"))
+months <- month.abb
+
+# Process each year using the SAME documented function, in ppm.
+air_2018 <- process_air_quality(
+  here::here("data", "raw", "AQ_2018.csv")
+)
+
+air_2019 <- process_air_quality(
+  here::here("data", "raw", "AQ_2019.csv")
+)
+
+air_2020 <- process_air_quality(
+  here::here("data", "raw", "AQ_2020.csv")
+)
+
+air_all <- bind_rows(air_2018, air_2019, air_2020) |>
+  mutate(year = as.integer(format(date, "%Y")),
+         month_num = as.integer(format(date, "%m")))
+
+stopifnot(
+  nrow(air_2018) == 361L,
+  nrow(air_2019) == 365L,
+  nrow(air_2020) == 121L,
+  nrow(air_all) == 847L,
+  !anyDuplicated(air_all$date),
+  all(air_all$co >= 0, na.rm = TRUE),
+  all(air_all$pm25 >= 0, na.rm = TRUE),
+  all(air_all$o3 >= 0, na.rm = TRUE),
+  isTRUE(all.equal(
+    process_air_quality(
+      here::here("data", "raw", "AQ_2018.csv"),
+      "ppb"
+    )$o3,
+    air_2018$o3 * 1000
+  ))
+)
+
+# Helper generates a table, one row per pollutant and rounded values
+make_range_table <- function(data) {
+  data |>
+    select(co, pm25, o3) |>
+    pivot_longer(everything(), names_to = "pollutant", values_to = "value") |>
+    group_by(pollutant) |>
+    summarise(
+      Minimum = if (all(is.na(value))) NA_real_ else min(value, na.rm = TRUE),
+      Maximum = if (all(is.na(value))) NA_real_ else max(value, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    mutate(Pollutant = recode(pollutant,
+                              co = "CO (ppm)",
+                              pm25 = "PM2.5 (µg/m³)",
+                              o3 = "O3 (ppm)")) |>
+    select(Pollutant, Minimum, Maximum)
+}
+```
+
+# Study context plus analytic approach
+
+Sickle cell disease (SCD) can involve vaso-occlusive pain and acute healthcare utilizaion. This descriptive analysis summarizes monitored ambient carbon monoxide (CO), fine particulate matter (PM2.5), and ozone (O3) at RDU airport in North Carolina. **The supplied files contain pollution measurements, not SCD utilization records**, therefore, the results describe pollution patterns only and **do not estimate an association or causal effect on SCD outcomes**.
+
+Daily measurements were read from EPA-derived CSV files covering all available dates in 2018, 2019, and January–April 2020. Exact duplicate source records were removed, implausible negative concentrrations set to zero, and multiple measurements on a date averaged for each pollutant separately. All table and plot summaries use the resulting one-row-per-day observations. Concentrations are expressed in CO ppm, PM2.5 µg/m^3, and O3 ppm.
+
+# Daily concentration ranges by year
+
+```{r table-2018}
+knitr::kable(make_range_table(air_2018), digits = 3, format = "pandoc",
+             caption = "Table 1. Minimum and maximum daily pollutant concentrations, 2018")
+```
+
+```{r table-2019}
+knitr::kable(make_range_table(air_2019), digits = 3, format = "pandoc",
+             caption = "Table 2. Minimum and maximum daily pollutant concentrations, 2019")
+```
+
+```{r table-2020}
+knitr::kable(make_range_table(air_2020), digits = 3, format = "pandoc",
+             caption = "Table 3. Minimum and maximum daily pollutant concentrations, January–April 2020")
+```
+
+# Monthly CO and O3 patterns, pooled across years
+
+```{r co-o3-ci, fig.cap="Figure 1. Pooled calendar-month mean concentrations and approximate 95% confidence intervals. January–April include 2018–2020, May–December include 2018–2019."}
+# Pool all observed DAILY concentrations for each calendar month. The supplied
+# normal-approximation CI is mean +/- 1.96 * sample SD / sqrt(nonmissing n).
+co_o3_monthly <- air_all |>
+  select(month_num, co, o3) |>
+  pivot_longer(cols = c(co, o3), names_to = "pollutant", values_to = "value") |>
+  group_by(month_num, pollutant) |>
+  summarise(
+    n = sum(!is.na(value)),
+    monthly_mean = if (n == 0) NA_real_ else mean(value, na.rm = TRUE),
+    sd_daily = if (n < 2) NA_real_ else sd(value, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(
+    se = sd_daily / sqrt(n),
+    ci_lower = monthly_mean - 1.96 * se,
+    ci_upper = monthly_mean + 1.96 * se,
+    pollutant = factor(pollutant, levels = c("co", "o3"),
+                       labels = c("CO (ppm)", "O3 (ppm)"))
+  )
+
+palette_co_o3 <- c("CO (ppm)" = "blue", "O3 (ppm)" = "red")
+plot1 <- ggplot(co_o3_monthly,
+                aes(x = month_num, y = monthly_mean, color = pollutant)) +
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.17,
+                linewidth = 0.55) +
+  geom_point(size = 2.5) +
+  facet_wrap(~ pollutant, ncol = 1, scales = "free_y") +
+  scale_color_manual(values = palette_co_o3) +
+  scale_x_continuous(breaks = 1:12, labels = months) +
+  labs(title = "Monthly carbon monoxide and ozone concentrations",
+       subtitle = "Daily observations pooled within each calendar month, 2018–2020",
+       x = "Calendar month", y = "Monthly mean concentration (panel-specific units)") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "none", panel.grid.minor = element_blank(),
+        strip.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold"))
+print(plot1)
+```
+
+**Plot design choice.** CO and O3 are separated into vertically stacked panels with independently scaled y axes, clearly labeled in ppm. This preserves each pollutant's real concentration values and makes both seasonal patterns legible without using a misleading shared scale or dual axis.
+
+**Confidence-interval interpretation.** Error bars use the requested normal approximation, \(\bar{x} \pm 1.96s/\sqrt{n}\), with \(n\) equal to the number of nonmissing daily measurements. Because pollution observations from adjacent days may be correlated, these are descriptive approximate intervals, not dependence-adjusted confidence intervals.
+
+# Monthly PM2.5 patterns by year
+
+```{r pm25-by-year, fig.cap="Figure 2. Average daily PM2.5 concentration for each calendar month and available year. The 2020 series ends in April because no later 2020 data were supplied."}
+# For each year/month, average the daily PM2.5 series (not raw input rows).
+pm25_monthly <- air_all |>
+  group_by(year, month_num) |>
+  summarise(n = sum(!is.na(pm25)),
+            monthly_mean = if (n == 0) NA_real_ else mean(pm25, na.rm = TRUE),
+            .groups = "drop") |>
+  mutate(year = factor(year))
+
+plot2 <- ggplot(pm25_monthly,
+                aes(x = month_num, y = monthly_mean,
+                    color = year, group = year)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2.4) +
+  scale_color_manual(values = c("2018" = "blue",
+                                "2019" = "red", "2020" = "purple")) +
+  scale_x_continuous(breaks = 1:12, labels = months) +
+  labs(title = "Monthly fine particulate matter by year",
+       subtitle = "Mean of daily PM2.5 concentrations for available months",
+       x = "Calendar month", y = "Mean PM2.5 (µg/m³)", color = "Year") +
+  theme_minimal(base_size = 11) +
+  theme(panel.grid.minor = element_blank(),
+        legend.position = "bottom", plot.title = element_text(face = "bold"))
+print(plot2)
+```
+
+**Geom choice.** Connected monthly means with points emphasize season-to-season changes and year-to-year comparisons while making the truncated 2020 record visible without implying measurements for May to December.
+
+# Interpretation
+
+CO is generally higher in the colder months (especialy November–January), whereas ozone peaks around late spring and summer, these patterns are visible in the pooled monthly means. PM2.5 fluctuates across months and years rather than showing one identical seasonal pattern, with relatively low values in early 2020, particularly January. These comparisons are descriptive: 2020 contains only January–April, and the 2020 daily maximum PM2.5 concentration should not be interpreted as a full-year comparison.
+
+# Limitations and reproducibility
+
+The RDU airport monitor represents local ambient conditions at that monitoring location, not an individual's personal exposure. The supplied measurements also lack SCD outcome records and other variables needed to evaluate healthcare utilization. The full analysis can be regenerated from the raw data using the scripts and instructions in `README.md`.
+
+# AI Use
+I used ChatGPT to assist with writing and debugging R code, including data cleaning functions, data processing, and visualization, especially reviewing the use of "here" and ggplot. I reviewed the generated code, tested it in RStudio, and checked the results for accuracy and consistency with the project requirements.
