@@ -14,7 +14,7 @@ SCD_Air_Quality_Project/
 ├── data/raw/AQ_2019.csv       # original 2019 data
 ├── data/raw/AQ_2020.csv       # original 2020 data (through April)
 ├── R/process_air_quality.R   # documented daily-cleaning function
-├── report.Rmd                # main RMarkdown analysis and report
+├── reports/report.Rmd               # main RMarkdown analysis and report
 ├── reports/report.docx       # rendered Word report (after knitting)
 ├── output/figures/           # optional plot exports
 ├── .gitignore
@@ -23,43 +23,48 @@ SCD_Air_Quality_Project/
 
 ## Reproduce the report
 
-1. Install **R (4.1 or newer)**, **RStudio** (recommended), and **Pandoc** (included in RStudio).
-2. Open this folder as an RStudio project (File → New Project → Existing Directory) or set the R working directory to the repository root.
-3. In the R console, install packages once:
+1. Install **R (version 4.1 or newer)** and **RStudio** (which includes Pandoc).
+
+2. Open `SCD_Air_Quality_Project.Rproj` in RStudio to ensure the project root is correctly identified.
+
+3. Install the required R packages by running the following command in the R console:
 
    ```r
-   install.packages(c("readr", "dplyr", "tidyr", "ggplot2", "knitr", "rmarkdown"))
+   install.packages(c(
+     "readr", "dplyr", "tidyr", "ggplot2",
+     "knitr", "rmarkdown", "here"
+   ))
    ```
 
-4. Open `report.Rmd` and use **Knit → Knit to Word** (code will be hidden in the Word output). Or run at the project root:
+4. Open `reports/report.Rmd` and select **Knit → Knit to Word**. Alternatively, run the following command from the project root:
 
    ```r
-   rmarkdown::render("report.Rmd", output_file = "report.docx",
-                     output_dir = "reports")
+   rmarkdown::render(
+     "reports/report.Rmd",
+     output_file = "report.docx"
+   )
    ```
 
-5. Verify the Word report, including three tables and two plots. The Rmd source and R function contain code comments, but chunks are set to `echo = FALSE` so the Word report is code-free.
-6. To use ozone in ppb instead of ppm for a separate analysis, run:
+5. The generated Word report will be saved as `reports/report.docx`. Verify that it contains three summary tables and two plots. Code is hidden in the Word output using `echo = FALSE`, while the RMarkdown source retains documented code.
+
+6. To process ozone concentrations in ppb rather than the default ppm, run:
 
    ```r
-   source("R/process_air_quality.R")
-   ozone_ppb <- process_air_quality("data/raw/AQ_2018.csv", o3_units = "ppb")
+   source(here::here("R", "process_air_quality.R"))
+
+   ozone_ppb <- process_air_quality(
+     here::here("data", "raw", "AQ_2018.csv"),
+     o3_units = "ppb"
+   )
    ```
+
 
 ## Cleaning logic
 
 The function checks input columns and units; removes exact duplicate records; parses dates; sets any negative pollutant concentration to zero **before aggregation**; averages available nonmissing pollutant values by day; and converts ozone to ppb if requested. All-missing daily pollutant groups remain `NA`. Daily averages are used for all analyses; a day with multiple source rows contributes just **one** value to each monthly average.
 
-**CI note:** The specified ±1.96 SE error bars use nonmissing daily observations pooled by calendar month, without adjusting for serial correlation. January–April pool three years, May–December two years.
+**CI note:** The specified +-1.96 SE error bars use nonmissing daily observations pooled by calendar month, without adjusting for serial correlation. January–April pool three years, May–December two years.
 
-## GitHub and submission checklist
-
-- [ ] Create a public or private GitHub repository and connect this folder using Git/GitHub Desktop or RStudio.
-- [ ] **Commit 1**: raw data, documented processing function, and README; push.
-- [ ] **Commit 2** (after working on report): finished report.Rmd and final output; push. Make these actual sequential commits, not a single bulk upload.
-- [ ] Replace `[Your Name]` in the report and author placeholder below.
-- [ ] Knit the report to `reports/report.docx` **in RStudio**, then review it.
-- [ ] Zip the whole project folder, including code, raw files, README, and Word report; submit ZIP to Canvas by **November 19, 2026, 5:00 PM EST**.
 
 ## Author and date
 
